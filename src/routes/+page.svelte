@@ -211,7 +211,7 @@
 	Informationskiosk der Universität Bern
 	{#if customerName === 'innovation'}
 		<p class="mt-2 text-lg font-medium">Ideenlabot</p>
-		<p class="text-base font-normal">Der Bot beantwortet Fragen rund um das IdeenLabor</p>
+		<p class="text-base font-normal">Der Bot beantwortet Fragen rund um das Ideenlabor</p>
 	{:else}
 		<p class="mt-2 text-lg font-medium">Der Bot beantwortet Fragen rund um die Abteilung für Qualitätssicherung und -entwicklung.</p>
 	{/if}
