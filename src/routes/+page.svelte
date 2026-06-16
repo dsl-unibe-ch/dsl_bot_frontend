@@ -24,7 +24,7 @@
 
 	let locked = $state(false);
 	let origin = $derived(building ? '' : page.url.searchParams.get('url') || '');
-	let sessionID = $state(null);
+	let initialized = $state(false);
 	let customerName = $state('');
 
 	onMount(async () => {
@@ -38,15 +38,16 @@
 		console.log('Origin:', origin);
 		try {
 			// Attempt to fetch the API root to check if the server is reachable
-			const res = await fetch(`${PUBLIC_API}/initialize-agent?origin=${origin}`);
+			const res = await fetch(`${PUBLIC_API}/initialize-agent?origin=${origin}`, {
+				credentials: 'include'
+			});
 			if (res.ok) {
 				const data = await res.json();
-				sessionID = data?.session_id;
 				customerName = data?.customer_name || '';
+				initialized = true;
 				console.log(data);
 			}
 		} catch (error) {
-			sessionID = null;
 			console.error(error);
 		}
 	});
@@ -54,11 +55,11 @@
 	const submitFeedback = async (rating: number, comments: string) => {
 		const response = await fetch(`${PUBLIC_API}/send-feedback`, {
 			method: 'POST',
+			credentials: 'include',
 			headers: {
 				'Content-Type': 'application/json'
 			},
 			body: JSON.stringify({
-				session_id: sessionID,
 				rating,
 				comments,
 				origin
@@ -97,10 +98,11 @@
 		// Call the RAG agent API
 		const response = fetch(`${PUBLIC_API}/invoke-agent`, {
 			method: 'POST',
+			credentials: 'include',
 			headers: {
 				'Content-Type': 'application/json'
 			},
-			body: JSON.stringify({ text: qVal, session_id: sessionID, origin })
+			body: JSON.stringify({ text: qVal, origin })
 		});
 		messages = [
 			...messages,
@@ -218,7 +220,7 @@
 </h1>
 
 <div class="flex flex-col items-center justify-center gap-4 p-4">
-	{#if sessionID}
+	{#if initialized}
 		{#if messages.length === 0}
 			<p class="p-4 text-gray-500" in:fly|global={{ x: 800 }} out:fade>
 				Keine Nachrichten vorhanden. Bitte senden Sie eine Nachricht an den Informationskioskbot.
