@@ -25,10 +25,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Debug PUBLIC_API
+        run: |
+          echo "PUBLIC_API=$PUBLIC_API"
+
       - name: build
         env:
           BASE_PATH: '/${{ github.event.repository.name }}'
-          # BASE_PATH: ""
           NODE_OPTIONS: "--max_old_space_size=9000"
         run: |
           pnpm run build
