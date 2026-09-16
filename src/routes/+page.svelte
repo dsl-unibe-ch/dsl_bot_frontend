@@ -139,8 +139,7 @@
 		</AlertDialog.Header>
 		<ul class="max-h-60 list-disc space-y-2 overflow-y-auto pl-6">
 			<li>
-				Diese Anwendung dient als Unterstützung bei der Suche nach Informationen im Zusammenhang mit
-				den Aktivitäten der Abteilung für Qualitätssicherung und -entwicklung der Universität Bern.
+				Diese Anwendung dient als Unterstützung bei der Suche nach Informationen.
 			</li>
 			<li>Diese Anwendung richtet sich an die Angehörigen der Universität Bern.</li>
 			<li>
@@ -207,23 +206,30 @@
 	</AlertDialog.Content>
 </AlertDialog.Root>
 
-<h1
-	class="sticky top-0 z-10 mb-9 scroll-m-20 bg-white pb-4 text-center text-3xl font-extrabold tracking-tight text-balance lg:text-5xl"
->
-	Informationskiosk der Universität Bern
-	{#if customerName === 'innovation'}
-		<p class="mt-2 text-lg font-medium">Ideenlabot</p>
-		<p class="text-base font-normal">Der Bot beantwortet Fragen rund um das Ideenlabor</p>
-	{:else}
-		<p class="mt-2 text-lg font-medium">Der Bot beantwortet Fragen rund um die Abteilung für Qualitätssicherung und -entwicklung.</p>
-	{/if}
-</h1>
+{#if customerName === 'bnf'}
+	<h1
+		class="sticky top-0 z-10 mb-9 scroll-m-20 bg-white pb-4 text-center text-3xl font-extrabold tracking-tight text-balance lg:text-5xl"
+	>
+		{customerName.toUpperCase()} Bot
+
+		<p class="mt-2 text-lg font-medium">
+			Der Bot beantwortet Fragen rund um das BNF – Nationales Qualifizierungsprogramm
+			der Universität Bern.
+		</p>
+
+		<p class="text-base font-normal">
+			Ein Chatbot-Service des <a
+				href="https://dsl.unibe.ch"
+				target="_blank">Data Science Lab (DSL)</a>
+		</p>
+	</h1>
+{/if}
 
 <div class="flex flex-col items-center justify-center gap-4 p-4">
 	{#if initialized}
 		{#if messages.length === 0}
 			<p class="p-4 text-gray-500" in:fly|global={{ x: 800 }} out:fade>
-				Keine Nachrichten vorhanden. Bitte senden Sie eine Nachricht an den Informationskioskbot.
+				Keine Nachrichten vorhanden. Bitte senden Sie eine Nachricht an den {customerName.toUpperCase()} Bot.
 			</p>
 		{:else}
 			{#each messages as message, index}
@@ -392,7 +398,7 @@
 			<a href="mailto:kb-support.dsl@unibe.ch">kb-support.dsl@unibe.ch</a>.
 		</p>
 		<p class="max-w-2xl text-sm text-gray-500">
-			Der Informationskioskbot ist ein KI-gestützter Chatbot, der Benutzern hilft, Informationen,
+			Dies ist ein KI-gestützter Chatbot, der Benutzern hilft, Informationen,
 			die mit der Universität Bern zusammenhängen, schnell und einfach zu finden. Er wird vom <a
 				href="https://dsl.unibe.ch"
 				target="_blank">Data Science Lab (DSL)</a
