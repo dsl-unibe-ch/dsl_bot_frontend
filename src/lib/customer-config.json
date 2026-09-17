@@ -1,0 +1,10 @@
+{
+	"bnf": {
+		"auth": true,
+		"msal": {
+			"clientId": "69cfebe0-a0c7-44ed-857d-2a97aa1256e9",
+			"tenantId": "d400387a-212f-43ea-ac7f-77aa12d7977e"
+		},
+        "introduction_text": "Der Bot beantwortet Fragen rund um das BNF – Nationales Qualifizierungsprogramm der Universität Bern."
+	}
+}

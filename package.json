@@ -46,6 +46,7 @@
 		"vite": "^7.3.5"
 	},
 	"dependencies": {
+		"@azure/msal-browser": "^5.22.0",
 		"@inlang/paraglide-js": "^2.18.2",
 		"marked": "^17.0.6",
 		"runed": "^0.37.1"
