@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ["main", "master", "testenv"]
+    branches: ['main', 'master', 'testenv']
   workflow_dispatch:
 env:
   PUBLIC_API: ${{ vars.PUBLIC_API }}
@@ -31,16 +31,22 @@ jobs:
 
       - name: build
         env:
-          BASE_PATH: '/${{ github.event.repository.name }}'
-          NODE_OPTIONS: "--max_old_space_size=9000"
+          NODE_OPTIONS: '--max_old_space_size=9000'
         run: |
+          # testenv keeps the default GitHub Pages project path; main/master serve from a custom domain at the root.
+          if [ "${{ github.ref_name }}" = "testenv" ]; then
+            export BASE_PATH="/${{ github.event.repository.name }}"
+          else
+            export BASE_PATH=""
+          fi
+          echo "Using BASE_PATH=$BASE_PATH"
           pnpm run build
 
       - name: Upload Artifacts
         uses: actions/upload-pages-artifact@v5
         with:
           # this should match the `pages` option in your adapter-static options
-          path: "build/"
+          path: 'build/'
 
   deploy:
     needs: build_site

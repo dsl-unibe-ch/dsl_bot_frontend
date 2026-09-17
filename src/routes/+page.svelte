@@ -13,6 +13,9 @@
 	import { marked } from 'marked';
 	import { fade, fly, slide } from 'svelte/transition';
 	import { page } from '$app/state';
+	import { CustomerConfig } from '$lib/customer-config';
+	import type { MsalAuth } from '$lib/msal-auth';
+	import Login from '$lib/components/login.svelte';
 	import { building } from '$app/environment';
 
 	let messages: {
@@ -23,9 +26,12 @@
 	let qVal = $state('');
 
 	let locked = $state(false);
-	let origin = $derived(building ? '' : page.url.searchParams.get('url') || '');
+	let origin = $state(building ? '' : page.url.searchParams.get('url') || '');
 	let initialized = $state(false);
 	let customerName = $state('');
+	let customerConfig: CustomerConfig | null = $state(null);
+	let msalAuth: MsalAuth | null = $state(null);
+	let authenticated = $state(false);
 
 	onMount(async () => {
 		const qEl = document.querySelector('textarea');
@@ -35,22 +41,48 @@
 				input: () => qVal
 			});
 		}
+		if (!origin) {
+			// Returning from the MSAL redirect drops the ?url= param since Azure AD only
+			// allows the bare site URL to be registered; recover it without another reload.
+			const storedOrigin = sessionStorage.getItem('msal_origin');
+			if (storedOrigin) {
+				origin = storedOrigin;
+				sessionStorage.removeItem('msal_origin');
+				history.replaceState(
+					null,
+					'',
+					`${window.location.pathname}?url=${encodeURIComponent(origin)}`
+				);
+			}
+		}
 		console.log('Origin:', origin);
 		try {
-			// Attempt to fetch the API root to check if the server is reachable
-			const res = await fetch(`${PUBLIC_API}/initialize-agent?origin=${origin}`, {
-				credentials: 'include'
-			});
-			if (res.ok) {
-				const data = await res.json();
-				customerName = data?.customer_name || '';
-				initialized = true;
-				console.log(data);
+			customerConfig = await CustomerConfig.init(origin);
+			customerName = customerConfig.customerName;
+			if (customerConfig.auth) {
+				msalAuth = customerConfig.createMsalAuth();
+				const account = await msalAuth.initialize();
+				authenticated = !!account;
+			} else {
+				authenticated = true;
 			}
+			initialized = true;
 		} catch (error) {
 			console.error(error);
 		}
 	});
+
+	const signOut = async () => {
+		if (!msalAuth) return;
+		try {
+			// Stash origin so it survives the logout redirect the same way login does.
+			sessionStorage.setItem('msal_origin', origin);
+			await msalAuth.logout();
+		} catch (error) {
+			console.error(error);
+			toast.error('Abmelden fehlgeschlagen. Bitte versuchen Sie es später erneut.');
+		}
+	};
 
 	const submitFeedback = async (rating: number, comments: string) => {
 		const response = await fetch(`${PUBLIC_API}/send-feedback`, {
@@ -138,9 +170,7 @@
 			</AlertDialog.Description>
 		</AlertDialog.Header>
 		<ul class="max-h-60 list-disc space-y-2 overflow-y-auto pl-6">
-			<li>
-				Diese Anwendung dient als Unterstützung bei der Suche nach Informationen.
-			</li>
+			<li>Diese Anwendung dient als Unterstützung bei der Suche nach Informationen.</li>
 			<li>Diese Anwendung richtet sich an die Angehörigen der Universität Bern.</li>
 			<li>
 				Der Chatbot ist für Informationen allgemeiner Art und nicht für persönliche oder
@@ -206,6 +236,12 @@
 	</AlertDialog.Content>
 </AlertDialog.Root>
 
+{#if customerConfig?.auth && authenticated && msalAuth}
+	<Button variant="outline" size="sm" onclick={signOut} class="fixed top-4 right-4 z-20">
+		Abmelden
+	</Button>
+{/if}
+
 {#if customerName === 'bnf'}
 	<h1
 		class="sticky top-0 z-10 mb-9 scroll-m-20 bg-white pb-4 text-center text-3xl font-extrabold tracking-tight text-balance lg:text-5xl"
@@ -213,197 +249,201 @@
 		{customerName.toUpperCase()} Bot
 
 		<p class="mt-2 text-lg font-medium">
-			Der Bot beantwortet Fragen rund um das BNF – Nationales Qualifizierungsprogramm
-			der Universität Bern.
+			{customerConfig?.introductionText}
 		</p>
 
 		<p class="text-base font-normal">
-			Ein Chatbot-Service des <a
-				href="https://dsl.unibe.ch"
-				target="_blank">Data Science Lab (DSL)</a>
+			Ein Chatbot-Service des <a href="https://dsl.unibe.ch" target="_blank"
+				>Data Science Lab (DSL)</a
+			>
 		</p>
 	</h1>
 {/if}
 
 <div class="flex flex-col items-center justify-center gap-4 p-4">
 	{#if initialized}
-		{#if messages.length === 0}
-			<p class="p-4 text-gray-500" in:fly|global={{ x: 800 }} out:fade>
-				Keine Nachrichten vorhanden. Bitte senden Sie eine Nachricht an den {customerName.toUpperCase()} Bot.
-			</p>
+		{#if customerConfig?.auth && !authenticated && msalAuth}
+			<Login {msalAuth} {origin} />
 		{:else}
-			{#each messages as message, index}
-				<div
-					class={[
-						'w-full max-w-2xl rounded-lg border border-gray-200  p-4 shadow-md',
-						message.issuer === 'bot' ? 'bg-secondary' : 'bg-white'
-					]}
-					in:fly|global={{ x: 800 * (message.issuer === 'bot' ? -1 : 1) }}
-					out:fade
-				>
-					{#if message.response}
-						{#await message.response}
-							<div transition:slide>
-								<LoaderCircle class="mx-auto size-12 animate-spin" />
-								<p class="prose text-gray-700">
-									Die künstliche Intelligenz sucht nach relevanten Informationen...
-								</p>
-							</div>
-						{:then content}
-							<div transition:slide use:focus>
-								<div class="prose mb-2 text-gray-700 [&_a]:wrap-break-word">
-									{@html marked.parse(content.output)}
+			{#if messages.length === 0}
+				<p class="p-4 text-gray-500" in:fly|global={{ x: 800 }} out:fade>
+					Keine Nachrichten vorhanden. Bitte senden Sie eine Nachricht an den {customerName.toUpperCase()}
+					Bot.
+				</p>
+			{:else}
+				{#each messages as message, index}
+					<div
+						class={[
+							'w-full max-w-2xl rounded-lg border border-gray-200  p-4 shadow-md',
+							message.issuer === 'bot' ? 'bg-secondary' : 'bg-white'
+						]}
+						in:fly|global={{ x: 800 * (message.issuer === 'bot' ? -1 : 1) }}
+						out:fade
+					>
+						{#if message.response}
+							{#await message.response}
+								<div transition:slide>
+									<LoaderCircle class="mx-auto size-12 animate-spin" />
+									<p class="prose text-gray-700">
+										Die künstliche Intelligenz sucht nach relevanten Informationen...
+									</p>
 								</div>
-								{#if content.sources && content.sources.length > 0}
-									<Sheet.Root>
-										<Sheet.Trigger class={buttonVariants({ variant: 'default' })}
-											>Quellen</Sheet.Trigger
-										>
-										<Sheet.Content class="w-full! sm:w-135!">
-											<Sheet.Header>
-												<Sheet.Title>verwendete Quellen</Sheet.Title>
-											</Sheet.Header>
-											<div class=" h-full overflow-y-auto">
-												{#each content.sources as source}
-													<div class="mb-2">
-														<dl class="pl-2">
-															<dt class="text-sm font-semibold">Titel</dt>
-															<dd class="mb-1">
-																{#if source.document_url.startsWith('http')}
-																	<a
-																		href={source.document_url}
-																		target="_blank"
-																		rel="noopener noreferrer"
-																	>
-																		{source.title}
-																	</a>
-																{:else}
-																	{source.title}
-																{/if}
-															</dd>
-															<dt class="text-xs font-semibold text-gray-500">Kategorie</dt>
-															<dd class="mb-1 text-xs">{source.category}</dd>
-															<dt class="text-xs font-semibold text-gray-500">Ort</dt>
-															<dd class="mb-1">{source.document_location}</dd>
-															<dt class="text-xs font-semibold text-gray-500">Datum</dt>
-															<dd class="mb-1 text-xs">{source.gathered_on}</dd>
-															<dt class="text-xs font-semibold text-gray-500">Score</dt>
-															<dd class="mb-1 text-xs">{source.score.toFixed(2)}</dd>
-															<dt class="text-xs font-semibold text-gray-500">Letzte Änderung</dt>
-															<dd class="mb-1 text-xs">{source.modified}</dd>
-															<dt class="text-xs font-semibold text-gray-500">Inhalt</dt>
-															<dd class="prose mb-1 text-xs">
-																{@html marked.parse(source.page_content)}
-															</dd>
-														</dl>
-													</div>
-												{/each}
-											</div>
-										</Sheet.Content>
-									</Sheet.Root>
-								{/if}
-								<p class="semibold mb-1">War die Antwort hilfreich?</p>
-								<form
-									onsubmit={(e) => {
-										e.preventDefault();
-										//validate if required fields are filled
-										if (helpful[index] === 0 && !feedbackMessages[index].trim()) {
-											alert(
-												'Bitte geben Sie einen Kommentar ein, wenn die Antwort nicht hilfreich war.'
-											);
-											return;
-										}
-										//submit feedback
-										submitFeedback(helpful[index] ?? 1, feedbackMessages[index]);
-									}}
-								>
-									<div class="mb-2 flex space-x-2">
-										<Button
-											variant={helpful[index] === 1 ? 'default' : 'outline'}
-											size="sm"
-											onclick={async (e: Event) => {
-												helpful[index] = 1;
-												await tick();
-												const target = e.target as HTMLButtonElement;
-												target?.form?.requestSubmit();
-											}}
-										>
-											Ja
-										</Button>
-										<Button
-											variant={helpful[index] === 0 ? 'default' : 'outline'}
-											size="sm"
-											onclick={() => {
-												helpful[index] = 0;
-												document.getElementById(`feedback-comments_${index}`)?.focus();
-											}}
-										>
-											Nein
-										</Button>
+							{:then content}
+								<div transition:slide use:focus>
+									<div class="prose mb-2 text-gray-700 [&_a]:wrap-break-word">
+										{@html marked.parse(content.output)}
 									</div>
-									<p class="mb-1">Kommentare</p>
-									<Textarea
-										placeholder="Feedback eingeben..."
-										bind:value={feedbackMessages[index]}
-										onkeydown={(e) => {
-											if (e.key === 'Enter' && !e.shiftKey) {
-												e.preventDefault();
-												const target = e.target as HTMLTextAreaElement;
-												target.form?.requestSubmit();
+									{#if content.sources && content.sources.length > 0}
+										<Sheet.Root>
+											<Sheet.Trigger class={buttonVariants({ variant: 'default' })}
+												>Quellen</Sheet.Trigger
+											>
+											<Sheet.Content class="w-full! sm:w-135!">
+												<Sheet.Header>
+													<Sheet.Title>verwendete Quellen</Sheet.Title>
+												</Sheet.Header>
+												<div class=" h-full overflow-y-auto">
+													{#each content.sources as source}
+														<div class="mb-2">
+															<dl class="pl-2">
+																<dt class="text-sm font-semibold">Titel</dt>
+																<dd class="mb-1">
+																	{#if source.document_url.startsWith('http')}
+																		<a
+																			href={source.document_url}
+																			target="_blank"
+																			rel="noopener noreferrer"
+																		>
+																			{source.title}
+																		</a>
+																	{:else}
+																		{source.title}
+																	{/if}
+																</dd>
+																<dt class="text-xs font-semibold text-gray-500">Kategorie</dt>
+																<dd class="mb-1 text-xs">{source.category}</dd>
+																<dt class="text-xs font-semibold text-gray-500">Ort</dt>
+																<dd class="mb-1">{source.document_location}</dd>
+																<dt class="text-xs font-semibold text-gray-500">Datum</dt>
+																<dd class="mb-1 text-xs">{source.gathered_on}</dd>
+																<dt class="text-xs font-semibold text-gray-500">Score</dt>
+																<dd class="mb-1 text-xs">{source.score.toFixed(2)}</dd>
+																<dt class="text-xs font-semibold text-gray-500">Letzte Änderung</dt>
+																<dd class="mb-1 text-xs">{source.modified}</dd>
+																<dt class="text-xs font-semibold text-gray-500">Inhalt</dt>
+																<dd class="prose mb-1 text-xs">
+																	{@html marked.parse(source.page_content)}
+																</dd>
+															</dl>
+														</div>
+													{/each}
+												</div>
+											</Sheet.Content>
+										</Sheet.Root>
+									{/if}
+									<p class="semibold mb-1">War die Antwort hilfreich?</p>
+									<form
+										onsubmit={(e) => {
+											e.preventDefault();
+											//validate if required fields are filled
+											if (helpful[index] === 0 && !feedbackMessages[index].trim()) {
+												alert(
+													'Bitte geben Sie einen Kommentar ein, wenn die Antwort nicht hilfreich war.'
+												);
+												return;
 											}
+											//submit feedback
+											submitFeedback(helpful[index] ?? 1, feedbackMessages[index]);
 										}}
-										required={helpful[index] === 0}
-										id="feedback-comments_{index}"
-										class="mb-2"
-									/>
-									<Button type="submit" size="sm" disabled={typeof helpful[index] !== 'number'}
-										>Absenden</Button
 									>
-								</form>
-							</div>
-						{/await}
+										<div class="mb-2 flex space-x-2">
+											<Button
+												variant={helpful[index] === 1 ? 'default' : 'outline'}
+												size="sm"
+												onclick={async (e: Event) => {
+													helpful[index] = 1;
+													await tick();
+													const target = e.target as HTMLButtonElement;
+													target?.form?.requestSubmit();
+												}}
+											>
+												Ja
+											</Button>
+											<Button
+												variant={helpful[index] === 0 ? 'default' : 'outline'}
+												size="sm"
+												onclick={() => {
+													helpful[index] = 0;
+													document.getElementById(`feedback-comments_${index}`)?.focus();
+												}}
+											>
+												Nein
+											</Button>
+										</div>
+										<p class="mb-1">Kommentare</p>
+										<Textarea
+											placeholder="Feedback eingeben..."
+											bind:value={feedbackMessages[index]}
+											onkeydown={(e) => {
+												if (e.key === 'Enter' && !e.shiftKey) {
+													e.preventDefault();
+													const target = e.target as HTMLTextAreaElement;
+													target.form?.requestSubmit();
+												}
+											}}
+											required={helpful[index] === 0}
+											id="feedback-comments_{index}"
+											class="mb-2"
+										/>
+										<Button type="submit" size="sm" disabled={typeof helpful[index] !== 'number'}
+											>Absenden</Button
+										>
+									</form>
+								</div>
+							{/await}
+						{:else}
+							<p class="mb-2 text-gray-700">{message.text}</p>
+						{/if}
+					</div>
+				{/each}
+			{/if}
+			<form
+				onsubmit={submitMessage}
+				class="sticky bottom-0 flex w-full max-w-2xl space-x-2 bg-white pt-4"
+			>
+				<Textarea
+					placeholder="Nachricht eingeben..."
+					bind:value={qVal}
+					onkeydown={(e) => {
+						if (e.key === 'Enter' && !e.shiftKey) {
+							e.preventDefault();
+							const target = e.target as HTMLTextAreaElement;
+							target.form?.requestSubmit();
+						}
+					}}
+					data-sveltekit-keepfocus
+				/>
+				<Button type="submit" size="icon" class="hover:cursor-pointer" disabled={locked}>
+					{#if locked}
+						<LoaderCircle class="animate-spin" />
 					{:else}
-						<p class="mb-2 text-gray-700">{message.text}</p>
+						<Send />
 					{/if}
-				</div>
-			{/each}
+				</Button>
+			</form>
+			<p class="max-w-2xl text-sm text-gray-500">
+				Alle Angaben ohne Gewähr. Bitte überprüfen Sie die Informationen auf der offiziellen
+				Webseite der Universität Bern. Bei Fragen oder Support wenden Sie sich bitte an das DSL
+				<a href="mailto:kb-support.dsl@unibe.ch">kb-support.dsl@unibe.ch</a>.
+			</p>
+			<p class="max-w-2xl text-sm text-gray-500">
+				Dies ist ein KI-gestützter Chatbot, der Benutzern hilft, Informationen, die mit der
+				Universität Bern zusammenhängen, schnell und einfach zu finden. Er wird vom <a
+					href="https://dsl.unibe.ch"
+					target="_blank">Data Science Lab (DSL)</a
+				> entwickelt.
+			</p>
 		{/if}
-		<form
-			onsubmit={submitMessage}
-			class="sticky bottom-0 flex w-full max-w-2xl space-x-2 bg-white pt-4"
-		>
-			<Textarea
-				placeholder="Nachricht eingeben..."
-				bind:value={qVal}
-				onkeydown={(e) => {
-					if (e.key === 'Enter' && !e.shiftKey) {
-						e.preventDefault();
-						const target = e.target as HTMLTextAreaElement;
-						target.form?.requestSubmit();
-					}
-				}}
-				data-sveltekit-keepfocus
-			/>
-			<Button type="submit" size="icon" class="hover:cursor-pointer" disabled={locked}>
-				{#if locked}
-					<LoaderCircle class="animate-spin" />
-				{:else}
-					<Send />
-				{/if}
-			</Button>
-		</form>
-		<p class="max-w-2xl text-sm text-gray-500">
-			Alle Angaben ohne Gewähr. Bitte überprüfen Sie die Informationen auf der offiziellen Webseite
-			der Universität Bern. Bei Fragen oder Support wenden Sie sich bitte an das DSL
-			<a href="mailto:kb-support.dsl@unibe.ch">kb-support.dsl@unibe.ch</a>.
-		</p>
-		<p class="max-w-2xl text-sm text-gray-500">
-			Dies ist ein KI-gestützter Chatbot, der Benutzern hilft, Informationen,
-			die mit der Universität Bern zusammenhängen, schnell und einfach zu finden. Er wird vom <a
-				href="https://dsl.unibe.ch"
-				target="_blank">Data Science Lab (DSL)</a
-			> entwickelt.
-		</p>
 	{:else}
 		<p>
 			Der Chatbot ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut. Kontaktieren
