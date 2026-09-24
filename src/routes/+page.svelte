@@ -32,6 +32,7 @@
 	let customerConfig: CustomerConfig | null = $state(null);
 	let msalAuth: MsalAuth | null = $state(null);
 	let authenticated = $state(false);
+	let restoreOriginInUrl = false;
 
 	onMount(async () => {
 		const qEl = document.querySelector('textarea');
@@ -43,16 +44,12 @@
 		}
 		if (!origin) {
 			// Returning from the MSAL redirect drops the ?url= param since Azure AD only
-			// allows the bare site URL to be registered; recover it without another reload.
+			// allows the bare site URL to be registered. Recover the value now, but keep
+			// the authentication response in the URL until MSAL has processed it.
 			const storedOrigin = sessionStorage.getItem('msal_origin');
 			if (storedOrigin) {
 				origin = storedOrigin;
-				sessionStorage.removeItem('msal_origin');
-				history.replaceState(
-					null,
-					'',
-					`${window.location.pathname}?url=${encodeURIComponent(origin)}`
-				);
+				restoreOriginInUrl = true;
 			}
 		}
 		console.log('Origin:', origin);
@@ -65,6 +62,14 @@
 				authenticated = !!account;
 			} else {
 				authenticated = true;
+			}
+			if (restoreOriginInUrl) {
+				sessionStorage.removeItem('msal_origin');
+				history.replaceState(
+					null,
+					'',
+					`${window.location.pathname}?url=${encodeURIComponent(origin)}`
+				);
 			}
 			initialized = true;
 		} catch (error) {
